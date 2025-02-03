@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Markdown to PDF Converter</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/2.4.0/purify.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.0.18/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -130,53 +131,65 @@
         }
 
         .hidden {
-    display: none;
-  }
+            display: none;
+        }
 
-  @media (max-width: 768px) {
-    .editor-preview {
-      flex-direction: column;
-    }
-  }
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 1rem 2rem;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border-radius: 4px;
+            z-index: 1000;
+        }
 
-  #meetDevButton {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background-color: #ff0000;
-    color: #fff;
-    border: none;
-    padding: 10px 20px;
-    font-size: 16px;
-    border-radius: 5px;
-    cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    transition: background-color 0.3s ease, transform 0.3s ease;
-    z-index: 1000;
-  }
-  #meetDevButton:hover {
-    background-color: #005fa3;
-  }
-  
-  /* Responsive adjustments */
-  @media (max-width: 768px) {
-    #meetDevButton {
-      top: 10px;
-      right: 10px;
-      padding: 8px 16px;
-      font-size: 14px;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-    }
-  }
-  
-  @media (max-width: 480px) {
-    #meetDevButton {
-      position: static;
-      margin: 10px auto;
-      display: block;
-      width: fit-content;
-    }
-  }
+        @media (max-width: 768px) {
+            .editor-preview {
+                flex-direction: column;
+            }
+        }
+
+        #meetDevButton {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #ff0000;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: background-color 0.3s ease, transform 0.3s ease;
+            z-index: 1000;
+        }
+
+        #meetDevButton:hover {
+            background-color: #005fa3;
+        }
+
+        @media (max-width: 768px) {
+            #meetDevButton {
+                top: 10px;
+                right: 10px;
+                padding: 8px 16px;
+                font-size: 14px;
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+            }
+        }
+
+        @media (max-width: 480px) {
+            #meetDevButton {
+                position: static;
+                margin: 10px auto;
+                display: block;
+                width: fit-content;
+            }
+        }
     </style>
 </head>
 <body>
@@ -186,7 +199,9 @@
     <div class="container">
         <div class="toolbar">
             <button class="btn" id="downloadBtn">Download PDF</button>
-            <button class="btn" id="themeToggle">Toggle Theme</button>
+            <button class="btn" id="themeToggle" aria-label="Toggle theme" role="switch" aria-checked="false">
+                Toggle Theme
+            </button>
             <input type="file" id="fileInput" class="hidden" accept=".md,text/plain">
             <label for="fileInput" class="btn">Upload File</label>
         </div>
@@ -201,8 +216,10 @@
         </div>
     </div>
 
+    <div id="loading" class="hidden">Generating PDF...</div>
+
     <script>
-        // Initialize Marked with highlight.js
+        // Initialize Marked with security and highlight.js
         marked.setOptions({
             highlight: function(code, lang) {
                 const language = hljs.getLanguage(lang) ? lang : 'plaintext';
@@ -210,7 +227,8 @@
             },
             langPrefix: 'hljs language-',
             breaks: true,
-            gfm: true
+            gfm: true,
+            sanitizer: DOMPurify.sanitize
         });
 
         // Elements
@@ -219,8 +237,28 @@
         const editorContainer = document.getElementById('editorContainer');
         const fileInput = document.getElementById('fileInput');
         const themeToggle = document.getElementById('themeToggle');
+        const loading = document.getElementById('loading');
 
-        // Update preview on input
+        // Theme management
+        function updateThemeButton(theme) {
+            themeToggle.setAttribute('aria-checked', theme === 'dark');
+        }
+
+        themeToggle.addEventListener('click', () => {
+            const newTheme = document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.body.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeButton(newTheme);
+        });
+
+        // Load saved theme
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.body.setAttribute('data-theme', savedTheme);
+            updateThemeButton(savedTheme);
+        });
+
+        // Update preview with debounce
         const updatePreview = debounce(() => {
             preview.innerHTML = marked.parse(editor.value);
         }, 300);
@@ -262,33 +300,34 @@
             reader.readAsText(file);
         }
 
-        // Download PDF
-        document.getElementById('downloadBtn').addEventListener('click', () => {
-            const element = preview.cloneNode(true);
-            element.style.padding = '2rem';
-            element.style.width = '210mm';
-            
-            html2pdf()
-                .set({
+        // PDF Generation
+        document.getElementById('downloadBtn').addEventListener('click', async () => {
+            loading.classList.remove('hidden');
+            try {
+                const element = preview.cloneNode(true);
+                element.style.padding = '2rem';
+                element.style.width = '210mm';
+                element.setAttribute('data-theme', 'light');
+                element.style.backgroundColor = '#ffffff';
+                element.style.color = '#333333';
+
+                await html2pdf().set({
                     margin: [10, 10],
                     filename: 'document.pdf',
                     image: { type: 'jpeg', quality: 0.98 },
                     html2canvas: { scale: 2 },
                     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                })
-                .from(element)
-                .save();
+                }).from(element).save();
+            } catch (error) {
+                console.error('PDF generation failed:', error);
+                alert('Error generating PDF. Please try again.');
+            } finally {
+                loading.classList.add('hidden');
+            }
         });
 
-        // Theme toggle
-        themeToggle.addEventListener('click', () => {
-            document.body.setAttribute('data-theme',
-                document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
-            );
-        });
-
-        // Initial preview
-        editor.value = `# Paste your Markdown here\n\nStart typing or drag and drop a Markdown file...`;
+        // Initial content
+        editor.value = `# Welcome to Markdown Converter\n\nStart typing or drag and drop a Markdown file...`;
         updatePreview();
 
         // Utility functions
